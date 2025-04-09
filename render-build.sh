@@ -1,3 +1,3 @@
 #!/bin/bash
 npm install
-npx puppeteer browsers install chrome
+npx puppeteer-core browsers install chrome
