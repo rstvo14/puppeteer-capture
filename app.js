@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 app.get('/capture', async (req, res) => {
   try {
@@ -16,6 +16,7 @@ app.get('/capture', async (req, res) => {
     const fileType = type && type.toLowerCase() === 'pdf' ? 'pdf' : 'png';
 
     const browser = await puppeteer.launch({
+      executablePath: '/opt/render/.cache/puppeteer/chrome/linux-135.0.7049.84/chrome-linux64/chrome',
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
       headless: 'new',
       timeout: 0,
@@ -28,11 +29,8 @@ app.get('/capture', async (req, res) => {
       timeout: 60000,
     });
 
-    // Wait for the map container to appear
     await page.waitForSelector('#mapColumns', { timeout: 30000 });
-
-    // Wait for map tiles to fully render (Mapbox specific)
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(4000); // Optional fine-tuning wait
 
     const elementHandle = await page.$('#mapColumns');
     const boundingBox = await elementHandle.boundingBox();
