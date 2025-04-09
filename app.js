@@ -16,21 +16,18 @@ app.get('/capture', async (req, res) => {
     const fileType = type && type.toLowerCase() === 'pdf' ? 'pdf' : 'png';
 
     const browser = await puppeteer.launch({
-      executablePath: '/opt/render/.cache/puppeteer/chrome/linux-135.0.7049.84/chrome-linux64/chrome',
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
       headless: 'new',
-      timeout: 0,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
     const page = await browser.newPage();
-
     await page.goto(url, {
       waitUntil: 'networkidle2',
       timeout: 60000,
     });
 
     await page.waitForSelector('#mapColumns', { timeout: 30000 });
-    await page.waitForTimeout(4000); // Optional fine-tuning wait
+    await page.waitForTimeout(4000); // Optional: let Mapbox tiles finish
 
     const elementHandle = await page.$('#mapColumns');
     const boundingBox = await elementHandle.boundingBox();
@@ -39,12 +36,11 @@ app.get('/capture', async (req, res) => {
       throw new Error("Could not determine bounding box for #mapColumns");
     }
 
-    let filePath;
+    const filePath = path.join(__dirname, fileType === 'pdf' ? 'output.pdf' : 'output.png');
+
     if (fileType === 'png') {
-      filePath = path.join(__dirname, 'output.png');
       await elementHandle.screenshot({ path: filePath });
     } else {
-      filePath = path.join(__dirname, 'output.pdf');
       await page.pdf({
         path: filePath,
         printBackground: true,
@@ -60,8 +56,8 @@ app.get('/capture', async (req, res) => {
         console.error('Error sending file:', err);
         res.status(500).send("Error delivering the captured file.");
       } else {
-        fs.unlink(filePath, (unlinkErr) => {
-          if (unlinkErr) console.error("Failed to delete file:", unlinkErr);
+        fs.unlink(filePath, err => {
+          if (err) console.error("Failed to delete file:", err);
         });
       }
     });

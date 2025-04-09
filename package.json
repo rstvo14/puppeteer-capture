@@ -1,9 +1,9 @@
 {
   "name": "puppeteer-capture",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app.js"
   },
   "keywords": [],
   "author": "",
@@ -11,6 +11,6 @@
   "description": "",
   "dependencies": {
     "express": "^5.1.0",
-    "puppeteer-core": "^24.6.1"
+    "puppeteer": "^24.6.1"
   }
 }
