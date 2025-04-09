@@ -15,24 +15,13 @@ app.get('/capture', async (req, res) => {
 
     const fileType = type && type.toLowerCase() === 'pdf' ? 'pdf' : 'png';
 
-    // Define the Chrome executable path from the environment or use the Render path
-    const chromeExecutablePath = process.env.CHROME_PATH ||
-      '/opt/render/.cache/puppeteer/chrome/linux-135.0.7049.84/chrome-linux64/chrome';
-
-    // Log the executable path to ensure it exists in your deployment environment
-    if (!fs.existsSync(chromeExecutablePath)) {
-      console.error('Chrome executable not found at:', chromeExecutablePath);
-    } else {
-      console.log('Chrome executable found at:', chromeExecutablePath);
-    }
-
     const browser = await puppeteer.launch({
       headless: 'new',
-      executablePath: chromeExecutablePath,
+      executablePath: process.env.CHROME_PATH || puppeteer.executablePath(),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage' // Useful in containerized environments
+        '--disable-dev-shm-usage'
       ]
     });
 
@@ -42,9 +31,8 @@ app.get('/capture', async (req, res) => {
       timeout: 60000,
     });
 
-    // Wait for the element with id "mapColumns" to load and settle
     await page.waitForSelector('#mapColumns', { timeout: 30000 });
-    await page.waitForTimeout(4000); // Optional: let Mapbox tiles finish loading
+    await page.waitForTimeout(4000); // Optional: let Mapbox tiles settle
 
     const elementHandle = await page.$('#mapColumns');
     const boundingBox = await elementHandle.boundingBox();
@@ -68,7 +56,6 @@ app.get('/capture', async (req, res) => {
 
     await browser.close();
 
-    // Send the file and then remove it after sending
     res.sendFile(filePath, err => {
       if (err) {
         console.error('Error sending file:', err);
