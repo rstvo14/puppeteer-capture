@@ -17,8 +17,8 @@ app.get('/capture', async (req, res) => {
 
     const browser = await puppeteer.launch({
       headless: 'new',
-      executablePath: process.env.CHROME_PATH || '/usr/bin/chromium', 
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      executablePath: process.env.CHROME_PATH || '/opt/render/.cache/puppeteer/chrome/linux-135.0.7049.84/chrome-linux64/chrome',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
 
     const page = await browser.newPage();
