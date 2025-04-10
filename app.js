@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // Add this line at the top of your file (after the requires):
-const chromePath = '/opt/render/.cache/puppeteer/chrome/linux-135.0.7049.84/chrome-linux64/chrome';
+const chromePath = '/usr/bin/google-chrome-stable';
 
 app.get('/capture', async (req, res) => {
   try {
