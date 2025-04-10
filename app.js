@@ -35,7 +35,7 @@ app.get('/capture', async (req, res) => {
     });
 
     await page.waitForSelector('#mapColumns', { timeout: 30000 });
-    await page.waitForTimeout(4000); // Optional: let Mapbox tiles settle
+    await new Promise(resolve => setTimeout(resolve, 4000));
 
     const elementHandle = await page.$('#mapColumns');
     const boundingBox = await elementHandle.boundingBox();
