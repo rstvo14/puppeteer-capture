@@ -6,8 +6,14 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Add this line at the top of your file (after the requires):
 const chromePath = '/usr/bin/google-chrome-stable';
+
+async function safeGoto(page, url, timeout = 60000) {
+  return Promise.race([
+    page.goto(url, { waitUntil: 'domcontentloaded', timeout }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Manual navigation timeout')), timeout))
+  ]);
+}
 
 app.get('/capture', async (req, res) => {
   try {
@@ -16,7 +22,10 @@ app.get('/capture', async (req, res) => {
       return res.status(400).send("Missing 'url' query parameter.");
     }
 
-    const fileType = type && type.toLowerCase() === 'pdf' ? 'pdf' : 'png';
+    const isPDF = type && type.toLowerCase() === 'pdf';
+    const timestamp = Date.now();
+    const pngPath = path.join(__dirname, `output-${timestamp}.png`);
+    const pdfPath = path.join(__dirname, `output-${timestamp}.pdf`);
 
     const browser = await puppeteer.launch({
       headless: 'new',
@@ -29,10 +38,12 @@ app.get('/capture', async (req, res) => {
     });
 
     const page = await browser.newPage();
-    await page.goto(url, {
-      waitUntil: 'networkidle2',
-      timeout: 60000,
-    });
+
+    await page.setUserAgent(
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36'
+    );
+
+    await safeGoto(page, url);
 
     await page.waitForSelector('#mapColumns', { timeout: 30000 });
     await new Promise(resolve => setTimeout(resolve, 4000));
@@ -44,31 +55,50 @@ app.get('/capture', async (req, res) => {
       throw new Error("Could not determine bounding box for #mapColumns");
     }
 
-    const filePath = path.join(__dirname, fileType === 'pdf' ? 'output.pdf' : 'output.png');
+    // Always capture PNG first
+    await elementHandle.screenshot({ path: pngPath });
 
-    if (fileType === 'png') {
-      await elementHandle.screenshot({ path: filePath });
-    } else {
-      await page.pdf({
-        path: filePath,
+    if (isPDF) {
+      const pdfPage = await browser.newPage();
+      await pdfPage.setContent(`
+        <html>
+          <body style="margin:0;padding:0;">
+            <img src="file://${pngPath}" style="width:100%;height:auto;" />
+          </body>
+        </html>
+      `, { waitUntil: 'load' });
+
+      await pdfPage.pdf({
+        path: pdfPath,
         printBackground: true,
         width: `${Math.ceil(boundingBox.width)}px`,
         height: `${Math.ceil(boundingBox.height)}px`
       });
+
+      await browser.close();
+
+      res.sendFile(pdfPath, err => {
+        if (err) {
+          console.error('Error sending PDF:', err);
+          res.status(500).send("Error delivering the PDF file.");
+        } else {
+          fs.unlink(pngPath, () => {});
+          fs.unlink(pdfPath, () => {});
+        }
+      });
+
+    } else {
+      await browser.close();
+
+      res.sendFile(pngPath, err => {
+        if (err) {
+          console.error('Error sending PNG:', err);
+          res.status(500).send("Error delivering the PNG file.");
+        } else {
+          fs.unlink(pngPath, () => {});
+        }
+      });
     }
-
-    await browser.close();
-
-    res.sendFile(filePath, err => {
-      if (err) {
-        console.error('Error sending file:', err);
-        res.status(500).send("Error delivering the captured file.");
-      } else {
-        fs.unlink(filePath, err => {
-          if (err) console.error("Failed to delete file:", err);
-        });
-      }
-    });
 
   } catch (error) {
     console.error("Capture error:", error);
