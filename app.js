@@ -3,11 +3,11 @@ const puppeteer = require('puppeteer-core');
 const path = require('path');
 const fs = require('fs');
 const Queue = require('promise-queue');
+const PDFDocument = require('pdfkit');
 
-const queue = new Queue(1, Infinity); // One at a time, unlimited backlog
+const queue = new Queue(1, Infinity);
 const app = express();
 const PORT = process.env.PORT || 10000;
-
 const chromePath = '/usr/bin/google-chrome-stable';
 
 async function safeGoto(page, url, timeout = 60000) {
@@ -24,31 +24,20 @@ app.get('/capture', (req, res) => {
 async function handleCapture(req, res) {
   try {
     const { url, type } = req.query;
-    if (!url) {
-      return res.status(400).send("Missing 'url' query parameter.");
-    }
+    if (!url) return res.status(400).send("Missing 'url' query parameter.");
 
     const isPDF = type && type.toLowerCase() === 'pdf';
     const timestamp = Date.now();
     const pngPath = path.join(__dirname, `output-${timestamp}.png`);
-    const pdfPath = path.join(__dirname, `output-${timestamp}.pdf`);
 
     const browser = await puppeteer.launch({
       headless: 'new',
       executablePath: chromePath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage'
-      ]
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
     const page = await browser.newPage();
-
-    await page.setUserAgent(
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36'
-    );
-
+    await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117 Safari/537.36');
     await safeGoto(page, url);
 
     await page.waitForSelector('#mapColumns', { timeout: 30000 });
@@ -56,54 +45,41 @@ async function handleCapture(req, res) {
 
     const elementHandle = await page.$('#mapColumns');
     const boundingBox = await elementHandle.boundingBox();
+    if (!boundingBox) throw new Error("Could not determine bounding box for #mapColumns");
 
-    if (!boundingBox) {
-      throw new Error("Could not determine bounding box for #mapColumns");
-    }
-
-    // Always capture PNG first
-    await elementHandle.screenshot({ path: pngPath });
+    // Capture PNG to buffer
+    const pngBuffer = await elementHandle.screenshot({ type: 'png' });
 
     if (isPDF) {
-      const pdfPage = await browser.newPage();
-      await pdfPage.setContent(`
-        <html>
-          <body style="margin:0;padding:0;">
-            <img src="file://${pngPath}" style="width:100%;height:auto;" />
-          </body>
-        </html>
-      `, { waitUntil: 'load' });
+      const doc = new PDFDocument({ autoFirstPage: false });
+      const buffers = [];
 
-      await pdfPage.pdf({
-        path: pdfPath,
-        printBackground: true,
-        width: `${Math.ceil(boundingBox.width)}px`,
-        height: `${Math.ceil(boundingBox.height)}px`
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', async () => {
+        const pdfBuffer = Buffer.concat(buffers);
+        await browser.close();
+
+        res.set({
+          'Content-Type': 'application/pdf',
+          'Content-Length': pdfBuffer.length
+        });
+        return res.send(pdfBuffer);
       });
 
-      await browser.close();
-
-      res.sendFile(pdfPath, err => {
-        if (err) {
-          console.error('Error sending PDF:', err);
-          res.status(500).send("Error delivering the PDF file.");
-        } else {
-          fs.unlink(pngPath, () => {});
-          fs.unlink(pdfPath, () => {});
-        }
-      });
+      // Match PDF size to image
+      const width = Math.ceil(boundingBox.width);
+      const height = Math.ceil(boundingBox.height);
+      doc.addPage({ size: [width, height] });
+      doc.image(pngBuffer, 0, 0, { width, height });
+      doc.end();
 
     } else {
       await browser.close();
-
-      res.sendFile(pngPath, err => {
-        if (err) {
-          console.error('Error sending PNG:', err);
-          res.status(500).send("Error delivering the PNG file.");
-        } else {
-          fs.unlink(pngPath, () => {});
-        }
+      res.set({
+        'Content-Type': 'image/png',
+        'Content-Length': pngBuffer.length
       });
+      return res.send(pngBuffer);
     }
 
   } catch (error) {
