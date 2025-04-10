@@ -2,9 +2,9 @@ const express = require('express');
 const puppeteer = require('puppeteer-core');
 const path = require('path');
 const fs = require('fs');
-const PQueue = require('p-queue');
-const queue = new PQueue({ concurrency: 1 }); // Limit to 1 job at a time
+const Queue = require('promise-queue');
 
+const queue = new Queue(1, Infinity); // One at a time, unlimited backlog
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -17,12 +17,10 @@ async function safeGoto(page, url, timeout = 60000) {
   ]);
 }
 
-// Main endpoint — wraps handler inside queue
-app.get('/capture', async (req, res) => {
-  await queue.add(() => handleCapture(req, res));
+app.get('/capture', (req, res) => {
+  queue.add(() => handleCapture(req, res));
 });
 
-// The core capture logic
 async function handleCapture(req, res) {
   try {
     const { url, type } = req.query;
