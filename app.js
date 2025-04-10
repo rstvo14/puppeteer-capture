@@ -1,10 +1,13 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 const path = require('path');
 const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+
+// Add this line at the top of your file (after the requires):
+const chromePath = '/opt/render/.cache/puppeteer/chrome/linux-135.0.7049.84/chrome-linux64/chrome';
 
 app.get('/capture', async (req, res) => {
   try {
@@ -17,7 +20,7 @@ app.get('/capture', async (req, res) => {
 
     const browser = await puppeteer.launch({
       headless: 'new',
-      executablePath: process.env.CHROME_PATH || puppeteer.executablePath(),
+      executablePath: chromePath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',

@@ -1,5 +1,4 @@
 #!/bin/bash
-npm uninstall puppeteer-core || true
-npm install puppeteer@24.6.1 --force
+npm install
 PUPPETEER_CACHE_DIR=/opt/render/.cache/puppeteer
 npx puppeteer browsers install chrome
