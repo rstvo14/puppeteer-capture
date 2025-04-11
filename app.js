@@ -32,8 +32,10 @@ async function handleCapture(req, res) {
 
     const browser = await puppeteer.launch({
       headless: 'new',
+      timeout: 60000,  
       executablePath: chromePath,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      protocolTimeout: 60000
     });
 
     const page = await browser.newPage();
