@@ -42,12 +42,12 @@ async function handleCapture(req, res) {
     await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117 Safari/537.36');
     await safeGoto(page, url);
 
-    await page.waitForSelector('#mapColumns', { timeout: 30000 });
+    await page.waitForSelector('#maps', { timeout: 30000 });
     await new Promise(resolve => setTimeout(resolve, 4000));
 
-    const elementHandle = await page.$('#mapColumns');
+    const elementHandle = await page.$('#maps');
     const boundingBox = await elementHandle.boundingBox();
-    if (!boundingBox) throw new Error("Could not determine bounding box for #mapColumns");
+    if (!boundingBox) throw new Error("Could not determine bounding box for #maps");
 
     // Capture PNG to buffer
     const pngBuffer = await elementHandle.screenshot({ type: 'png' });
