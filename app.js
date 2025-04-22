@@ -40,7 +40,7 @@ async function handleCapture(req, res) {
 
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117 Safari/537.36');
-    await page.setViewport({ width: 1440, height: 1000 });
+    await page.setViewport({ width: 1220, height: 1000 });
     await safeGoto(page, url);
 
     await page.waitForSelector('#maps', { timeout: 30000 });
