@@ -10,6 +10,8 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const chromePath = '/usr/bin/google-chrome-stable';
 
+await page.setViewport({ width: 1440, height: 1000 });
+
 async function safeGoto(page, url, timeout = 60000) {
   return Promise.race([
     page.goto(url, { waitUntil: 'domcontentloaded', timeout }),
@@ -43,31 +45,7 @@ async function handleCapture(req, res) {
     await safeGoto(page, url);
 
     await page.waitForSelector('#maps', { timeout: 30000 });
-
-    // Wait until both map canvases are fully loaded
-    await page.evaluate(async () => {
-      const waitForMapLoad = (id) => {
-        return new Promise(resolve => {
-          const mapEl = document.getElementById(id);
-          if (!mapEl || !mapEl._mapboxMapInstance) return resolve();
-    
-          const map = mapEl._mapboxMapInstance;
-          if (map.loaded()) {
-            resolve();
-          } else {
-            map.once('idle', () => resolve());
-          }
-        });
-      };
-    
-      const promises = [];
-      const map1 = document.getElementById('map01');
-      const map2 = document.getElementById('map02');
-      if (map1) promises.push(waitForMapLoad('map01'));
-      if (map2 && getComputedStyle(map2).display !== 'none') promises.push(waitForMapLoad('map02'));
-    
-      await Promise.all(promises);
-    });
+    await new Promise(resolve => setTimeout(resolve, 4000));
 
     const elementHandle = await page.$('#maps');
     const boundingBox = await elementHandle.boundingBox();
