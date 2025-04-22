@@ -10,8 +10,6 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const chromePath = '/usr/bin/google-chrome-stable';
 
-await page.setViewport({ width: 1440, height: 1000 });
-
 async function safeGoto(page, url, timeout = 60000) {
   return Promise.race([
     page.goto(url, { waitUntil: 'domcontentloaded', timeout }),
@@ -42,6 +40,7 @@ async function handleCapture(req, res) {
 
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117 Safari/537.36');
+    await page.setViewport({ width: 1440, height: 1000 });
     await safeGoto(page, url);
 
     await page.waitForSelector('#maps', { timeout: 30000 });
