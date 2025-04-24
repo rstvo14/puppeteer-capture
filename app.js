@@ -43,12 +43,12 @@ async function handleCapture(req, res) {
     await page.setViewport({ width: 1220, height: 1000 });
     await safeGoto(page, url);
 
-    await page.waitForSelector('#maps', { timeout: 30000 });
+    await page.waitForSelector('#capture-full', { timeout: 30000 });
     await new Promise(resolve => setTimeout(resolve, 4000));
 
-    const elementHandle = await page.$('#maps');
+    const elementHandle = await page.$('#capture-full');
     const boundingBox = await elementHandle.boundingBox();
-    if (!boundingBox) throw new Error("Could not determine bounding box for #maps");
+    if (!boundingBox) throw new Error("Could not determine bounding box for #capture-full");
 
     // Capture PNG to buffer
     const pngBuffer = await elementHandle.screenshot({ type: 'png' });
