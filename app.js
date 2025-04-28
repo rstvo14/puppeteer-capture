@@ -77,7 +77,7 @@ async function handleCapture(req, res) {
 
     // **NEW**: if this is a map-snapshot, give Mapbox tiles a bit more time
     if (url.includes("/map-snapshot")) {
-      await page.waitForTimeout(5000);
+      await delay(5000);
     }
 
     // Grab the element and screenshot
