@@ -1,7 +1,6 @@
 const express = require("express");
 const puppeteer = require("puppeteer-core");
 const path = require("path");
-const fs = require("fs");
 const Queue = require("promise-queue");
 const PDFDocument = require("pdfkit");
 
@@ -24,15 +23,14 @@ app.get("/capture", (req, res) => {
 });
 
 async function handleCapture(req, res) {
+  let browser;
   try {
     const { url, type } = req.query;
     if (!url) return res.status(400).send("Missing 'url' query parameter.");
 
     const isPDF = type && type.toLowerCase() === "pdf";
-    const timestamp = Date.now();
-    const pngPath = path.join(__dirname, `output-${timestamp}.png`);
 
-    const browser = await puppeteer.launch({
+    browser = await puppeteer.launch({
       headless: "new",
       timeout: 60000,
       executablePath: chromePath,
@@ -46,61 +44,69 @@ async function handleCapture(req, res) {
 
     const page = await browser.newPage();
     await page.setUserAgent(
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117 Safari/537.36"
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/117 Safari/537.36"
     );
     await page.setViewport({ width: 1220, height: 1000 });
+
+    // Navigate
     await safeGoto(page, url);
 
-    await page.waitForSelector("#capture-full", { timeout: 30000 });
-    // Wait for #capture-full to finish rendering (example condition: it contains a fully loaded <img> or a loaded chart)
-    await page.waitForFunction(
-      () => {
-        const container = document.querySelector("#capture-full");
-        if (!container) return false;
+    // Wait for our container
+    await page.waitForSelector("#capture-full", { timeout: 60000 });
 
-        const images = container.querySelectorAll("img");
-        for (const img of images) {
-          if (!img.complete || img.naturalHeight === 0) return false;
+    // Wait for images / charts / canvases to appear
+    try {
+      await page.waitForFunction(() => {
+        const c = document.querySelector("#capture-full");
+        if (!c) return false;
+        // all images loaded?
+        const imgs = Array.from(c.querySelectorAll("img"));
+        if (imgs.length && !imgs.every(i => i.complete && i.naturalHeight > 0)) {
+          return false;
         }
+        // any Highcharts?
+        if (c.querySelector("svg.highcharts-root")) return true;
+        // any Mapbox canvases?
+        if (c.querySelectorAll(".mapboxgl-canvas").length) return true;
+        return imgs.length > 0; // fallback
+      }, { timeout: 60000 });
+    } catch (e) {
+      console.warn("Timed out waiting for content—proceeding anyway.");
+    }
 
-        // Optional: wait for Highcharts or Mapbox presence
-        const hasChart = container.querySelector(
-          ".highcharts-container, .mapboxgl-canvas"
-        );
-        return hasChart || images.length > 0;
-      },
-      { timeout: 30000 }
-    );
+    // **NEW**: if this is a map-snapshot, give Mapbox tiles a bit more time
+    if (url.includes("/map-snapshot")) {
+      await page.waitForTimeout(5000);
+    }
 
+    // Grab the element and screenshot
     const elementHandle = await page.$("#capture-full");
-    const boundingBox = await elementHandle.boundingBox();
-    if (!boundingBox)
-      throw new Error("Could not determine bounding box for #capture-full");
+    const box = await elementHandle.boundingBox();
+    if (!box) throw new Error("Couldn't find bounding box for #capture-full");
 
-    // Capture PNG to buffer
     const pngBuffer = await elementHandle.screenshot({ type: "png" });
 
     if (isPDF) {
       const doc = new PDFDocument({ autoFirstPage: false });
       const buffers = [];
-
       doc.on("data", buffers.push.bind(buffers));
       doc.on("end", async () => {
         const pdfBuffer = Buffer.concat(buffers);
         await browser.close();
-
         res.set({
           "Content-Type": "application/pdf",
           "Content-Length": pdfBuffer.length,
         });
-        return res.send(pdfBuffer);
+        res.send(pdfBuffer);
       });
-
-      // Match PDF size to image
-      const width = Math.ceil(boundingBox.width);
-      const height = Math.ceil(boundingBox.height);
-      doc.addPage({ size: [width, height] });
-      doc.image(pngBuffer, 0, 0, { width, height });
+      doc.addPage({
+        size: [Math.ceil(box.width), Math.ceil(box.height)],
+      });
+      doc.image(pngBuffer, 0, 0, {
+        width: Math.ceil(box.width),
+        height: Math.ceil(box.height),
+      });
       doc.end();
     } else {
       await browser.close();
@@ -108,10 +114,11 @@ async function handleCapture(req, res) {
         "Content-Type": "image/png",
         "Content-Length": pngBuffer.length,
       });
-      return res.send(pngBuffer);
+      res.send(pngBuffer);
     }
-  } catch (error) {
-    console.error("Capture error:", error);
+  } catch (err) {
+    console.error("Capture error:", err);
+    if (browser) await browser.close();
     res.status(500).send("Error capturing the requested content.");
   }
 }
