@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const chromePath = "/usr/bin/google-chrome-stable";
 
-// helper to race a page.goto against a manual timeout
+// race page.goto against a manual timeout
 async function safeGoto(page, url, timeout = 60000) {
   return Promise.race([
     page.goto(url, { waitUntil: "domcontentloaded", timeout }),
@@ -20,7 +20,7 @@ async function safeGoto(page, url, timeout = 60000) {
   ]);
 }
 
-// simple delay
+// small helper
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -56,52 +56,57 @@ async function handleCapture(req, res) {
     );
     await page.setViewport({ width: 1220, height: 1000 });
 
-    // 1) Navigate + wait for the container
+    // 1) navigate and wait for the capture container
     await safeGoto(page, url);
     await page.waitForSelector("#capture-full", { timeout: 30000 });
 
-    // 2) Wait for images or charts to render
-    try {
-      await page.waitForFunction(
-        () => {
-          const c = document.querySelector("#capture-full");
-          if (!c) return false;
-          const imgs = Array.from(c.querySelectorAll("img"));
-          if (imgs.length && imgs.every(i => i.complete && i.naturalHeight > 0)) {
-            return true;
-          }
-          const chart = c.querySelector("svg.highcharts-root");
-          return chart && chart.clientWidth > 0 && chart.clientHeight > 0;
-        },
-        { timeout: 30000 }
-      );
-    } catch {
-      console.warn("Timeout waiting for images/charts—continuing.");
-    }
+    // selectors scoped to #capture-full
+    const mapSel   = "#capture-full .mapboxgl-canvas";
+    const chartSel = "#capture-full svg.highcharts-root";
+    const imgSel   = "#capture-full img";
 
-    // 3) Wait for Mapbox canvas then give it 3s to finish tiles & layers
-    try {
+    // 2) if it's a map page, wait for canvas + 3 s buffer
+    if (await page.$(mapSel)) {
       await page.waitForFunction(
-        () => {
-          const canv = document.querySelector(".mapboxgl-canvas");
-          return canv && canv.width > 0 && canv.height > 0;
+        sel => {
+          const c = document.querySelector(sel);
+          return c && c.width > 0 && c.height > 0;
         },
-        { timeout: 30000 }
+        { timeout: 30000 },
+        mapSel
       );
-      // extra buffer for all tiles & layers to draw
       await delay(3000);
-    } catch {
-      console.warn("Timeout waiting for map—continuing.");
     }
+    // 3) else if it's a chart page, wait for the SVG to render
+    else if (await page.$(chartSel)) {
+      await page.waitForFunction(
+        sel => {
+          const svg = document.querySelector(sel);
+          return svg && svg.clientWidth > 0 && svg.clientHeight > 0;
+        },
+        { timeout: 30000 },
+        chartSel
+      );
+    }
+    // 4) else if it has images, wait for them to finish loading
+    else if ((await page.$$(imgSel)).length > 0) {
+      await page.waitForFunction(
+        sel => Array.from(document.querySelectorAll(sel))
+                      .every(i => i.complete && i.naturalHeight > 0),
+        { timeout: 30000 },
+        imgSel
+      );
+    }
+    // otherwise we proceed immediately
 
-    // 4) Grab the bounding box & screenshot
+    // 5) screenshot
     const elementHandle = await page.$("#capture-full");
     const box = await elementHandle.boundingBox();
-    if (!box) throw new Error("Could not determine bounding box for #capture-full");
+    if (!box) throw new Error("Could not determine bounding box");
 
     const pngBuffer = await elementHandle.screenshot({ type: "png" });
 
-    // 5) Return PDF or PNG
+    // 6) send back PDF or PNG
     if (isPDF) {
       const doc = new PDFDocument({ autoFirstPage: false });
       const buffers = [];
