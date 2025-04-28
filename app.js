@@ -1,6 +1,7 @@
 const express = require("express");
 const puppeteer = require("puppeteer-core");
 const path = require("path");
+const fs = require("fs");
 const Queue = require("promise-queue");
 const PDFDocument = require("pdfkit");
 
@@ -9,6 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const chromePath = "/usr/bin/google-chrome-stable";
 
+// helper to race a page.goto against a manual timeout
 async function safeGoto(page, url, timeout = 60000) {
   return Promise.race([
     page.goto(url, { waitUntil: "domcontentloaded", timeout }),
@@ -16,6 +18,11 @@ async function safeGoto(page, url, timeout = 60000) {
       setTimeout(() => reject(new Error("Manual navigation timeout")), timeout)
     ),
   ]);
+}
+
+// simple delay
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 app.get("/capture", (req, res) => {
@@ -49,44 +56,52 @@ async function handleCapture(req, res) {
     );
     await page.setViewport({ width: 1220, height: 1000 });
 
-    // Navigate
+    // 1) Navigate + wait for the container
     await safeGoto(page, url);
+    await page.waitForSelector("#capture-full", { timeout: 30000 });
 
-    // Wait for our container
-    await page.waitForSelector("#capture-full", { timeout: 60000 });
-
-    // Wait for images / charts / canvases to appear
+    // 2) Wait for images or charts to render
     try {
-      await page.waitForFunction(() => {
-        const c = document.querySelector("#capture-full");
-        if (!c) return false;
-        // all images loaded?
-        const imgs = Array.from(c.querySelectorAll("img"));
-        if (imgs.length && !imgs.every(i => i.complete && i.naturalHeight > 0)) {
-          return false;
-        }
-        // any Highcharts?
-        if (c.querySelector("svg.highcharts-root")) return true;
-        // any Mapbox canvases?
-        if (c.querySelectorAll(".mapboxgl-canvas").length) return true;
-        return imgs.length > 0; // fallback
-      }, { timeout: 60000 });
-    } catch (e) {
-      console.warn("Timed out waiting for content—proceeding anyway.");
+      await page.waitForFunction(
+        () => {
+          const c = document.querySelector("#capture-full");
+          if (!c) return false;
+          const imgs = Array.from(c.querySelectorAll("img"));
+          if (imgs.length && imgs.every(i => i.complete && i.naturalHeight > 0)) {
+            return true;
+          }
+          const chart = c.querySelector("svg.highcharts-root");
+          return chart && chart.clientWidth > 0 && chart.clientHeight > 0;
+        },
+        { timeout: 30000 }
+      );
+    } catch {
+      console.warn("Timeout waiting for images/charts—continuing.");
     }
 
-    // **NEW**: if this is a map-snapshot, give Mapbox tiles a bit more time
-    if (url.includes("/map-snapshot")) {
-      await delay(5000);
+    // 3) Wait for Mapbox canvas then give it 3s to finish tiles & layers
+    try {
+      await page.waitForFunction(
+        () => {
+          const canv = document.querySelector(".mapboxgl-canvas");
+          return canv && canv.width > 0 && canv.height > 0;
+        },
+        { timeout: 30000 }
+      );
+      // extra buffer for all tiles & layers to draw
+      await delay(3000);
+    } catch {
+      console.warn("Timeout waiting for map—continuing.");
     }
 
-    // Grab the element and screenshot
+    // 4) Grab the bounding box & screenshot
     const elementHandle = await page.$("#capture-full");
     const box = await elementHandle.boundingBox();
-    if (!box) throw new Error("Couldn't find bounding box for #capture-full");
+    if (!box) throw new Error("Could not determine bounding box for #capture-full");
 
     const pngBuffer = await elementHandle.screenshot({ type: "png" });
 
+    // 5) Return PDF or PNG
     if (isPDF) {
       const doc = new PDFDocument({ autoFirstPage: false });
       const buffers = [];
@@ -100,13 +115,8 @@ async function handleCapture(req, res) {
         });
         res.send(pdfBuffer);
       });
-      doc.addPage({
-        size: [Math.ceil(box.width), Math.ceil(box.height)],
-      });
-      doc.image(pngBuffer, 0, 0, {
-        width: Math.ceil(box.width),
-        height: Math.ceil(box.height),
-      });
+      doc.addPage({ size: [Math.ceil(box.width), Math.ceil(box.height)] });
+      doc.image(pngBuffer, 0, 0, { width: box.width, height: box.height });
       doc.end();
     } else {
       await browser.close();
