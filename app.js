@@ -54,7 +54,7 @@ async function handleCapture(req, res) {
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/117 Safari/537.36"
     );
-    await page.setViewport({ width: 1220, height: 1000 });
+    await page.setViewport({ width: 1220, height: 1000, deviceScaleFactor: 2 });
 
     // 1) navigate and wait for the capture container
     await safeGoto(page, url);
