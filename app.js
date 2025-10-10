@@ -60,15 +60,22 @@ async function handleCapture(req, res) {
     await safeGoto(page, url);
     await page.waitForSelector("#capture-full", { timeout: 30000 });
 
+    // ➜ NEW: wait for a page-driven "I'm ready" marker, with a safe fallback
+    try {
+      await page.waitForSelector("#snapshot-ready", { timeout: 20000 });
+    } catch (e) {
+      await delay(4000); // fallback so the job never hangs forever
+    }
+
     // selectors scoped to #capture-full
-    const mapSel   = "#capture-full .mapboxgl-canvas";
+    const mapSel = "#capture-full .mapboxgl-canvas";
     const chartSel = "#capture-full svg.highcharts-root";
-    const imgSel   = "#capture-full img";
+    const imgSel = "#capture-full img";
 
     // 2) if it's a map page, wait for canvas + 3 s buffer
     if (await page.$(mapSel)) {
       await page.waitForFunction(
-        sel => {
+        (sel) => {
           const c = document.querySelector(sel);
           return c && c.width > 0 && c.height > 0;
         },
@@ -80,7 +87,7 @@ async function handleCapture(req, res) {
     // 3) else if it's a chart page, wait for the SVG to render
     else if (await page.$(chartSel)) {
       await page.waitForFunction(
-        sel => {
+        (sel) => {
           const svg = document.querySelector(sel);
           return svg && svg.clientWidth > 0 && svg.clientHeight > 0;
         },
@@ -91,8 +98,10 @@ async function handleCapture(req, res) {
     // 4) else if it has images, wait for them to finish loading
     else if ((await page.$$(imgSel)).length > 0) {
       await page.waitForFunction(
-        sel => Array.from(document.querySelectorAll(sel))
-                      .every(i => i.complete && i.naturalHeight > 0),
+        (sel) =>
+          Array.from(document.querySelectorAll(sel)).every(
+            (i) => i.complete && i.naturalHeight > 0
+          ),
         { timeout: 30000 },
         imgSel
       );
