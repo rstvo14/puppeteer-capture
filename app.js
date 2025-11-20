@@ -1,78 +1,114 @@
 const express = require("express");
 const puppeteer = require("puppeteer-core");
-const path = require("path");
-const fs = require("fs");
 const Queue = require("promise-queue");
 const PDFDocument = require("pdfkit");
 
 const queue = new Queue(1, Infinity);
 const app = express();
 const PORT = process.env.PORT || 10000;
+
+// Chrome installed from Dockerfile:
 const chromePath = "/usr/bin/google-chrome-stable";
 
-// race page.goto against a manual timeout
+// ------------------------------------------------------
+// SHARED BROWSER INSTANCE
+// ------------------------------------------------------
+let sharedBrowser = null;
+
+async function getBrowser() {
+  if (sharedBrowser && sharedBrowser.isConnected()) {
+    return sharedBrowser;
+  }
+
+  sharedBrowser = await puppeteer.launch({
+    headless: "new",
+    timeout: 60000,
+    executablePath: chromePath,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process"
+    ],
+    protocolTimeout: 60000,
+  });
+
+  return sharedBrowser;
+}
+
+// ------------------------------------------------------
+// SAFE GOTO (handles manual timeout)
+// ------------------------------------------------------
 async function safeGoto(page, url, timeout = 60000) {
   return Promise.race([
     page.goto(url, { waitUntil: "domcontentloaded", timeout }),
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error("Manual navigation timeout")), timeout)
-    ),
+    )
   ]);
 }
 
-// small helper
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ------------------------------------------------------
+// ROUTE
+// ------------------------------------------------------
 app.get("/capture", (req, res) => {
   queue.add(() => handleCapture(req, res));
 });
 
+// ------------------------------------------------------
+// MAIN CAPTURE HANDLER
+// ------------------------------------------------------
 async function handleCapture(req, res) {
-  let browser;
+  let page = null;
+
   try {
     const { url, type } = req.query;
-    if (!url) return res.status(400).send("Missing 'url' query parameter.");
+    if (!url) {
+      return res.status(400).send("Missing 'url' query parameter.");
+    }
 
     const isPDF = type && type.toLowerCase() === "pdf";
 
-    browser = await puppeteer.launch({
-      headless: "new",
-      timeout: 60000,
-      executablePath: chromePath,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
-      protocolTimeout: 60000,
-    });
+    // Get shared browser
+    const browser = await getBrowser();
+    page = await browser.newPage();
 
-    const page = await browser.newPage();
     await page.setUserAgent(
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/117 Safari/537.36"
+      "(KHTML, like Gecko) Chrome/117 Safari/537.36"
     );
-    await page.setViewport({ width: 1220, height: 1000, deviceScaleFactor: 2 });
 
-    // 1) navigate and wait for the capture container
+    await page.setViewport({
+      width: 1220,
+      height: 1000,
+      deviceScaleFactor: 2
+    });
+
+    // Load page
     await safeGoto(page, url);
+
+    // Core container
     await page.waitForSelector("#capture-full", { timeout: 30000 });
 
-    // ➜ NEW: wait for a page-driven "I'm ready" marker, with a safe fallback
+    // Optional "snapshot-ready" indicator
     try {
       await page.waitForSelector("#snapshot-ready", { timeout: 20000 });
-    } catch (e) {
-      await delay(4000); // fallback so the job never hangs forever
+    } catch {
+      await delay(4000);
     }
 
-    // selectors scoped to #capture-full
+    // Determine content type to wait for
     const mapSel = "#capture-full .mapboxgl-canvas";
     const chartSel = "#capture-full svg.highcharts-root";
     const imgSel = "#capture-full img";
 
-    // 2) if it's a map page, wait for canvas + 3 s buffer
     if (await page.$(mapSel)) {
       await page.waitForFunction(
         (sel) => {
@@ -83,9 +119,7 @@ async function handleCapture(req, res) {
         mapSel
       );
       await delay(3000);
-    }
-    // 3) else if it's a chart page, wait for the SVG to render
-    else if (await page.$(chartSel)) {
+    } else if (await page.$(chartSel)) {
       await page.waitForFunction(
         (sel) => {
           const svg = document.querySelector(sel);
@@ -94,9 +128,7 @@ async function handleCapture(req, res) {
         { timeout: 30000 },
         chartSel
       );
-    }
-    // 4) else if it has images, wait for them to finish loading
-    else if ((await page.$$(imgSel)).length > 0) {
+    } else if ((await page.$$(imgSel)).length > 0) {
       await page.waitForFunction(
         (sel) =>
           Array.from(document.querySelectorAll(sel)).every(
@@ -106,47 +138,73 @@ async function handleCapture(req, res) {
         imgSel
       );
     }
-    // otherwise we proceed immediately
 
-    // 5) screenshot
-    const elementHandle = await page.$("#capture-full");
-    const box = await elementHandle.boundingBox();
-    if (!box) throw new Error("Could not determine bounding box");
+    const element = await page.$("#capture-full");
+    const box = await element.boundingBox();
+    if (!box) throw new Error("Could not determine element bounding box.");
 
-    const pngBuffer = await elementHandle.screenshot({ type: "png" });
+    const pngBuffer = await element.screenshot({ type: "png" });
 
-    // 6) send back PDF or PNG
+    // ------------------------------------------------------
+    // PDF OUTPUT
+    // ------------------------------------------------------
     if (isPDF) {
       const doc = new PDFDocument({ autoFirstPage: false });
       const buffers = [];
+
       doc.on("data", buffers.push.bind(buffers));
-      doc.on("end", async () => {
+      doc.on("end", () => {
         const pdfBuffer = Buffer.concat(buffers);
-        await browser.close();
         res.set({
           "Content-Type": "application/pdf",
-          "Content-Length": pdfBuffer.length,
+          "Content-Length": pdfBuffer.length
         });
         res.send(pdfBuffer);
       });
-      doc.addPage({ size: [Math.ceil(box.width), Math.ceil(box.height)] });
-      doc.image(pngBuffer, 0, 0, { width: box.width, height: box.height });
-      doc.end();
-    } else {
-      await browser.close();
-      res.set({
-        "Content-Type": "image/png",
-        "Content-Length": pngBuffer.length,
+
+      doc.addPage({
+        size: [Math.ceil(box.width), Math.ceil(box.height)]
       });
-      res.send(pngBuffer);
+
+      doc.image(pngBuffer, 0, 0, {
+        width: box.width,
+        height: box.height
+      });
+
+      doc.end();
+      return;
     }
+
+    // ------------------------------------------------------
+    // PNG OUTPUT
+    // ------------------------------------------------------
+    res.set({
+      "Content-Type": "image/png",
+      "Content-Length": pngBuffer.length
+    });
+    res.send(pngBuffer);
+
   } catch (err) {
     console.error("Capture error:", err);
-    if (browser) await browser.close();
+
+    // Reset shared browser if it crashed
+    if (sharedBrowser && !sharedBrowser.isConnected()) {
+      sharedBrowser = null;
+    }
+
     res.status(500).send("Error capturing the requested content.");
+  } finally {
+    if (page) {
+      await page.close().catch((e) =>
+        console.error("Error closing page:", e)
+      );
+    }
   }
 }
 
+// ------------------------------------------------------
+// SERVER
+// ------------------------------------------------------
 app.listen(PORT, () => {
   console.log(`Puppeteer capture service running on port ${PORT}`);
 });
