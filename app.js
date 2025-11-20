@@ -186,7 +186,10 @@ async function handleCapture(req, res) {
 
   } catch (err) {
     console.error("Capture error:", err);
-
+    if (err.message && err.message.includes("Failed to launch the browser")) {
+    console.error("Critical Chrome failure – forcing container restart");
+    process.exit(1);
+  }
     // Reset shared browser if it crashed
     if (sharedBrowser && !sharedBrowser.isConnected()) {
       sharedBrowser = null;
