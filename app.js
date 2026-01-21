@@ -38,8 +38,10 @@ async function getBrowser() {
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--no-first-run",
-      "--use-gl=angle",
       "--use-gl=swiftshader",
+      "--ignore-certificate-errors",
+      "--disable-web-security",
+      "--disable-gpu-sandbox",
       "--hide-scrollbars",
       "--mute-audio"
     ],
