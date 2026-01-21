@@ -40,6 +40,7 @@ async function getBrowser() {
       "--no-first-run",
       "--use-gl=angle",
       "--use-angle=swiftshader",
+      "--enable-unsafe-swiftshader",
       "--use-vulkan=off",
       "--ignore-gpu-blocklist",
       "--ignore-certificate-errors",
