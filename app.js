@@ -37,7 +37,11 @@ async function getBrowser() {
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--no-first-run"
+      "--no-first-run",
+      "--use-gl=angle",
+      "--use-gl=swiftshader",
+      "--hide-scrollbars",
+      "--mute-audio"
     ],
     protocolTimeout: 180000,
   });
@@ -86,6 +90,10 @@ async function handleCapture(req, res) {
     const browser = await getBrowser();
     page = await browser.newPage();
 
+    // Log browser console to server logs for debugging
+    page.on("console", (msg) => console.log("BROWSER LOG:", msg.text()));
+    page.on("pageerror", (err) => console.error("BROWSER ERROR:", err.message));
+
     await page.setUserAgent(
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/117 Safari/537.36"
@@ -124,7 +132,7 @@ async function handleCapture(req, res) {
         { timeout: 30000 },
         mapSel
       );
-      await delay(3000);
+      await delay(6000);
     } else if (await page.$(chartSel)) {
       await page.waitForFunction(
         (sel) => {
