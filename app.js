@@ -17,23 +17,29 @@ let sharedBrowser = null;
 
 async function getBrowser() {
   if (sharedBrowser && sharedBrowser.isConnected()) {
-    return sharedBrowser;
+    try {
+      // Basic health check to ensure the browser is still responsive
+      await sharedBrowser.version();
+      return sharedBrowser;
+    } catch (err) {
+      console.error("Shared browser unresponsive, closing and restarting...", err);
+      await sharedBrowser.close().catch(() => { });
+      sharedBrowser = null;
+    }
   }
 
   sharedBrowser = await puppeteer.launch({
     headless: "new",
-    timeout: 60000,
+    timeout: 180000,
     executablePath: chromePath,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--no-first-run",
-      "--no-zygote",
-      "--single-process"
+      "--no-first-run"
     ],
-    protocolTimeout: 60000,
+    protocolTimeout: 180000,
   });
 
   return sharedBrowser;
@@ -42,7 +48,7 @@ async function getBrowser() {
 // ------------------------------------------------------
 // SAFE GOTO (handles manual timeout)
 // ------------------------------------------------------
-async function safeGoto(page, url, timeout = 60000) {
+async function safeGoto(page, url, timeout = 120000) {
   return Promise.race([
     page.goto(url, { waitUntil: "domcontentloaded", timeout }),
     new Promise((_, reject) =>
@@ -187,9 +193,9 @@ async function handleCapture(req, res) {
   } catch (err) {
     console.error("Capture error:", err);
     if (err.message && err.message.includes("Failed to launch the browser")) {
-    console.error("Critical Chrome failure – forcing container restart");
-    process.exit(1);
-  }
+      console.error("Critical Chrome failure – forcing container restart");
+      process.exit(1);
+    }
     // Reset shared browser if it crashed
     if (sharedBrowser && !sharedBrowser.isConnected()) {
       sharedBrowser = null;
