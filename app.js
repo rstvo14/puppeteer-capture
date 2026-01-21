@@ -29,7 +29,7 @@ async function getBrowser() {
   }
 
   sharedBrowser = await puppeteer.launch({
-    headless: "new",
+    headless: "shell",
     timeout: 180000,
     ignoreHTTPSErrors: true,
     executablePath: chromePath,
@@ -38,9 +38,10 @@ async function getBrowser() {
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--no-first-run",
-      "--headless=new",
       "--use-gl=angle",
       "--use-angle=swiftshader",
+      "--use-vulkan=off",
+      "--ignore-gpu-blocklist",
       "--ignore-certificate-errors",
       "--disable-web-security",
       "--disable-gpu-sandbox",
@@ -56,9 +57,7 @@ async function getBrowser() {
       "--disable-extensions",
       "--disable-hang-monitor",
       "--disable-ipc-flooding-protection",
-      "--disable-popup-blocking",
-      "--disable-prompt-on-repost",
-      "--disable-renderer-backgrounding",
+      "--disable-render-backgrounding",
       "--disable-sync"
     ],
     protocolTimeout: 180000,
@@ -108,9 +107,9 @@ async function handleCapture(req, res) {
     const browser = await getBrowser();
     page = await browser.newPage();
 
-    // Log browser console to server logs for debugging
-    page.on("console", (msg) => console.log("BROWSER LOG:", msg.text()));
-    page.on("pageerror", (err) => console.error("BROWSER ERROR:", err.message));
+    // Log browser console only if needed for debugging (currently off for cleaner logs)
+    // page.on("console", (msg) => console.log("BROWSER LOG:", msg.text()));
+    // page.on("pageerror", (err) => console.error("BROWSER ERROR:", err.message));
 
     await page.setUserAgent(
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
@@ -133,7 +132,7 @@ async function handleCapture(req, res) {
     try {
       await page.waitForSelector("#snapshot-ready", { timeout: 20000 });
     } catch {
-      await delay(4000);
+      await delay(2000);
     }
 
     // Determine content type to wait for
@@ -150,7 +149,7 @@ async function handleCapture(req, res) {
         { timeout: 30000 },
         mapSel
       );
-      await delay(6000);
+      await delay(3000);
     } else if (await page.$(chartSel)) {
       await page.waitForFunction(
         (sel) => {
