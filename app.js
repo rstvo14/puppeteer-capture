@@ -31,6 +31,7 @@ async function getBrowser() {
   sharedBrowser = await puppeteer.launch({
     headless: "new",
     timeout: 180000,
+    ignoreHTTPSErrors: true,
     executablePath: chromePath,
     args: [
       "--no-sandbox",
@@ -42,6 +43,8 @@ async function getBrowser() {
       "--ignore-certificate-errors",
       "--disable-web-security",
       "--disable-gpu-sandbox",
+      "--in-process-gpu",
+      "--test-type",
       "--hide-scrollbars",
       "--mute-audio"
     ],

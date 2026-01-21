@@ -26,6 +26,8 @@ RUN apt-get update \
     libxss1 \
     libxkbcommon0 \
     libvulkan1 \
+    libgl1 \
+    libosmesa6 \
  && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
  && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
  && apt-get update \
