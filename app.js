@@ -8,29 +8,10 @@ const queue = new Queue(1, Infinity);
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ------------------------------------------------------
-// PERSISTENT STATS (REDIS)
-// ------------------------------------------------------
-const envKeys = Object.keys(process.env);
-const redisKeys = envKeys.filter(k => k.includes("REDIS"));
-console.log(`Checking for Redis variables: [${redisKeys.join(", ")}]`);
-
-// Check values manually to find "empty string" issues
-redisKeys.forEach(k => {
-  if (!process.env[k]) console.warn(`⚠️ Variable ${k} exists but is EMPTY.`);
-});
-
 const rawUrl = process.env.REDIS_URL ||
   process.env.REDIS_PUBLIC_URL ||
   process.env.REDIS_PRIVATE_URL ||
   (process.env.REDISHOST ? `redis://${process.env.REDISUSER || 'default'}:${process.env.REDISPASSWORD}@${process.env.REDISHOST}:${process.env.REDISPORT}` : null);
-
-if (rawUrl) {
-  const masked = rawUrl.length > 20 ? rawUrl.substring(0, 15) + "..." : "Detected URL";
-  console.log(`✅ Redis URL detected: ${masked}`);
-} else {
-  console.error("❌ CRITICAL: No Redis connection string found. Check your Railway Variables.");
-}
 
 const redis = rawUrl ? new Redis(rawUrl, {
   maxRetriesPerRequest: 1,
@@ -40,9 +21,7 @@ const redis = rawUrl ? new Redis(rawUrl, {
 
 if (redis) {
   redis.on("error", (err) => {
-    if (err.code === "ECONNREFUSED") {
-      // Don't log ECONNREFUSED spam
-    } else {
+    if (err.code !== "ECONNREFUSED") {
       console.error("Redis connection error:", err.message);
     }
   });
