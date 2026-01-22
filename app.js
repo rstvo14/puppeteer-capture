@@ -41,17 +41,13 @@ app.get("/stats", async (req, res) => {
   try {
     const data = await redis.hgetall("capture_stats");
     res.json({
-      uptime_info: "Stats are persistent in Redis. (Fixed double-counting bug)",
-      current_counts: {
-        total: parseInt(data.total || 0),
-        pdf: parseInt(data.pdf || 0),
-        png: parseInt(data.png || 0),
-        maps: parseInt(data.maps || 0),
-        charts: parseInt(data.charts || 0),
-        images: parseInt(data.images || 0),
-        errors: parseInt(data.errors || 0)
-      },
-      reset_info: "Visit /stats/reset to clear these numbers."
+      total: parseInt(data.total || 0),
+      pdf: parseInt(data.pdf || 0),
+      png: parseInt(data.png || 0),
+      maps: parseInt(data.maps || 0),
+      charts: parseInt(data.charts || 0),
+      images: parseInt(data.images || 0),
+      errors: parseInt(data.errors || 0)
     });
   } catch (err) {
     res.status(500).json({ error: "Could not fetch stats" });
