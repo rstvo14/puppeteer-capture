@@ -16,15 +16,26 @@ const rawUrl = process.env.REDIS_URL ||
 const redis = rawUrl ? new Redis(rawUrl, {
   maxRetriesPerRequest: 1,
   connectTimeout: 5000,
-  retryStrategy: (times) => (times <= 3 ? 1000 : null)
+  retryStrategy: (times) => (times <= 3 ? 1000 : null),
+  lazyConnect: false
 }) : null;
 
 if (redis) {
   redis.on("error", (err) => {
-    if (err.code !== "ECONNREFUSED") {
+    if (err.code !== "ECONNREFUSED" && err.code !== "ECONNRESET" && err.code !== "ETIMEDOUT") {
       console.error("Redis connection error:", err.message);
     }
   });
+
+  redis.on("connect", () => {
+    console.log("✅ Redis connected successfully");
+  });
+
+  redis.on("close", () => {
+    console.warn("⚠️ Redis connection closed");
+  });
+} else {
+  console.warn("⚠️ Redis not configured - stats will not be saved");
 }
 
 async function trackStat(field) {
@@ -38,6 +49,21 @@ async function trackStat(field) {
 // STATS ENDPOINTS
 // ------------------------------------------------------
 app.get("/stats", async (req, res) => {
+  if (!redis) {
+    return res.status(503).json({
+      error: "Redis not configured",
+      message: "Statistics tracking is unavailable because Redis is not connected."
+    });
+  }
+
+  if (redis.status !== "ready") {
+    return res.status(503).json({
+      error: "Redis not ready",
+      status: redis.status,
+      message: "Redis connection is not ready. Check Railway logs for connection issues."
+    });
+  }
+
   try {
     const data = await redis.hgetall("capture_stats");
     res.json({
@@ -50,7 +76,11 @@ app.get("/stats", async (req, res) => {
       errors: parseInt(data.errors || 0)
     });
   } catch (err) {
-    res.status(500).json({ error: "Could not fetch stats" });
+    console.error("Stats fetch error:", err);
+    res.status(500).json({
+      error: "Could not fetch stats",
+      message: err.message
+    });
   }
 });
 
