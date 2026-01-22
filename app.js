@@ -2,12 +2,49 @@ const express = require("express");
 const puppeteer = require("puppeteer-core");
 const Queue = require("promise-queue");
 const PDFDocument = require("pdfkit");
+const Redis = require("ioredis");
 
 const queue = new Queue(1, Infinity);
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Chrome installed from Dockerfile:
+// ------------------------------------------------------
+// PERSISTENT STATS (REDIS)
+// ------------------------------------------------------
+const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+
+async function trackStat(field) {
+  try {
+    await redis.hincrby("capture_stats", field, 1);
+    await redis.hincrby("capture_stats", "total", 1);
+  } catch (err) {
+    console.error("Redis Stat Error:", err);
+  }
+}
+
+// ------------------------------------------------------
+// STATS ENDPOINT
+// ------------------------------------------------------
+app.get("/stats", async (req, res) => {
+  try {
+    const data = await redis.hgetall("capture_stats");
+    res.json({
+      uptime_info: "Stats are now persistent in Redis.",
+      current_counts: {
+        total: parseInt(data.total || 0),
+        pdf: parseInt(data.pdf || 0),
+        png: parseInt(data.png || 0),
+        maps: parseInt(data.maps || 0),
+        charts: parseInt(data.charts || 0),
+        images: parseInt(data.images || 0),
+        errors: parseInt(data.errors || 0)
+      },
+      service_info: "Visit /capture?url=... to generate an image or PDF."
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Could not fetch stats" });
+  }
+});
 const chromePath = "/usr/bin/google-chrome-stable";
 
 // ------------------------------------------------------
@@ -140,8 +177,10 @@ async function handleCapture(req, res) {
     const mapSel = "#capture-full .mapboxgl-canvas";
     const chartSel = "#capture-full svg.highcharts-root";
     const imgSel = "#capture-full img";
+    let identifiedCategory = "Image";
 
     if (await page.$(mapSel)) {
+      identifiedCategory = "Map";
       await page.waitForFunction(
         (sel) => {
           const c = document.querySelector(sel);
@@ -152,6 +191,7 @@ async function handleCapture(req, res) {
       );
       await delay(3000);
     } else if (await page.$(chartSel)) {
+      identifiedCategory = "Chart";
       await page.waitForFunction(
         (sel) => {
           const svg = document.querySelector(sel);
@@ -176,6 +216,12 @@ async function handleCapture(req, res) {
     if (!box) throw new Error("Could not determine element bounding box.");
 
     const pngBuffer = await element.screenshot({ type: "png" });
+
+    // Update persistent stats in Redis
+    trackStat(isPDF ? "pdf" : "png");
+    trackStat(identifiedCategory.toLowerCase() + "s"); // maps, charts, or images
+
+    console.log(`[SUCCESS] Category: ${identifiedCategory} | Format: ${isPDF ? "PDF" : "PNG"} | URL: ${url}`);
 
     // ------------------------------------------------------
     // PDF OUTPUT
@@ -217,6 +263,7 @@ async function handleCapture(req, res) {
     res.send(pngBuffer);
 
   } catch (err) {
+    trackStat("errors");
     console.error("Capture error:", err);
     if (err.message && err.message.includes("Failed to launch the browser")) {
       console.error("Critical Chrome failure – forcing container restart");
