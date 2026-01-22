@@ -23,20 +23,11 @@ const redis = rawUrl ? new Redis(rawUrl, {
 
 if (redis) {
   redis.on("error", (err) => {
+    // Ignore common connectivity errors to prevent log spam
     if (err.code !== "ECONNREFUSED" && err.code !== "ECONNRESET" && err.code !== "ETIMEDOUT") {
       console.error("Redis connection error:", err.message);
     }
   });
-
-  redis.on("connect", () => {
-    console.log("✅ Redis connected successfully");
-  });
-
-  redis.on("close", () => {
-    console.warn("⚠️ Redis connection closed");
-  });
-} else {
-  console.warn("⚠️ Redis not configured - stats will not be saved");
 }
 
 async function trackStat(field) {
@@ -50,23 +41,8 @@ async function trackStat(field) {
 // STATS ENDPOINTS
 // ------------------------------------------------------
 app.get("/stats", async (req, res) => {
-  if (!redis) {
-    return res.status(503).json({
-      error: "Redis not configured",
-      message: "Statistics tracking is unavailable because Redis is not connected."
-    });
-  }
-
-  if (redis.status !== "ready") {
-    return res.status(503).json({
-      error: "Redis not ready",
-      status: redis.status,
-      message: "Redis connection is not ready. Check Railway logs for connection issues."
-    });
-  }
-
   try {
-    const data = await redis.hgetall("capture_stats");
+    const data = redis ? await redis.hgetall("capture_stats") : {};
     res.json({
       total: parseInt(data.total || 0),
       pdf: parseInt(data.pdf || 0),
@@ -77,17 +53,13 @@ app.get("/stats", async (req, res) => {
       errors: parseInt(data.errors || 0)
     });
   } catch (err) {
-    console.error("Stats fetch error:", err);
-    res.status(500).json({
-      error: "Could not fetch stats",
-      message: err.message
-    });
+    res.status(500).json({ error: "Could not fetch stats" });
   }
 });
 
 app.get("/stats/reset", async (req, res) => {
   try {
-    await redis.del("capture_stats");
+    if (redis) await redis.del("capture_stats");
     res.send("Statistics have been successfully reset to zero.");
   } catch (err) {
     res.status(500).send("Error resetting stats.");
