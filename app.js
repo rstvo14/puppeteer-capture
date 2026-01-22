@@ -11,15 +11,39 @@ const PORT = process.env.PORT || 10000;
 // ------------------------------------------------------
 // PERSISTENT STATS (REDIS)
 // ------------------------------------------------------
-const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+const redisUrl = process.env.REDIS_URL ||
+  (process.env.REDISHOST ? `redis://${process.env.REDISUSER || 'default'}:${process.env.REDISPASSWORD}@${process.env.REDISHOST}:${process.env.REDISPORT}` : null);
+
+if (!redisUrl) {
+  console.warn("⚠️ REDIS_URL not found. Stats will NOT be saved to Redis. Please check Railway Variables.");
+} else {
+  console.log(`✅ Attempting Redis connection: ${redisUrl.replace(/:[^:@]+@/, ":****@")}`);
+}
+
+const redis = redisUrl ? new Redis(redisUrl, {
+  maxRetriesPerRequest: 1,
+  connectTimeout: 5000,
+  retryStrategy(times) {
+    return times <= 3 ? 1000 : null; // Only retry 3 times then give up to stop log spam
+  }
+}) : null;
+
+if (redis) {
+  redis.on("error", (err) => {
+    if (err.code === "ECONNREFUSED") {
+      // Don't log ECONNREFUSED spam
+    } else {
+      console.error("Redis connection error:", err.message);
+    }
+  });
+}
 
 async function trackStat(field) {
+  if (!redis || redis.status !== "ready") return;
   try {
     await redis.hincrby("capture_stats", field, 1);
     await redis.hincrby("capture_stats", "total", 1);
-  } catch (err) {
-    console.error("Redis Stat Error:", err);
-  }
+  } catch (err) { /* Silent fail */ }
 }
 
 // ------------------------------------------------------
