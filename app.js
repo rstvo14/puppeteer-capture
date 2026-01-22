@@ -31,18 +31,17 @@ async function trackStat(field) {
   if (!redis || redis.status !== "ready") return;
   try {
     await redis.hincrby("capture_stats", field, 1);
-    await redis.hincrby("capture_stats", "total", 1);
   } catch (err) { /* Silent fail */ }
 }
 
 // ------------------------------------------------------
-// STATS ENDPOINT
+// STATS ENDPOINTS
 // ------------------------------------------------------
 app.get("/stats", async (req, res) => {
   try {
     const data = await redis.hgetall("capture_stats");
     res.json({
-      uptime_info: "Stats are now persistent in Redis.",
+      uptime_info: "Stats are persistent in Redis. (Fixed double-counting bug)",
       current_counts: {
         total: parseInt(data.total || 0),
         pdf: parseInt(data.pdf || 0),
@@ -52,10 +51,19 @@ app.get("/stats", async (req, res) => {
         images: parseInt(data.images || 0),
         errors: parseInt(data.errors || 0)
       },
-      service_info: "Visit /capture?url=... to generate an image or PDF."
+      reset_info: "Visit /stats/reset to clear these numbers."
     });
   } catch (err) {
     res.status(500).json({ error: "Could not fetch stats" });
+  }
+});
+
+app.get("/stats/reset", async (req, res) => {
+  try {
+    await redis.del("capture_stats");
+    res.send("Statistics have been successfully reset to zero.");
+  } catch (err) {
+    res.status(500).send("Error resetting stats.");
   }
 });
 const chromePath = "/usr/bin/google-chrome-stable";
@@ -232,7 +240,8 @@ async function handleCapture(req, res) {
 
     // Update persistent stats in Redis
     trackStat(isPDF ? "pdf" : "png");
-    trackStat(identifiedCategory.toLowerCase() + "s"); // maps, charts, or images
+    trackStat(identifiedCategory.toLowerCase() + "s");
+    trackStat("total"); // Only count total once per request!
 
     console.log(`[SUCCESS] Category: ${identifiedCategory} | Format: ${isPDF ? "PDF" : "PNG"} | URL: ${url}`);
 
@@ -277,6 +286,7 @@ async function handleCapture(req, res) {
 
   } catch (err) {
     trackStat("errors");
+    trackStat("total");
     console.error("Capture error:", err);
     if (err.message && err.message.includes("Failed to launch the browser")) {
       console.error("Critical Chrome failure – forcing container restart");
