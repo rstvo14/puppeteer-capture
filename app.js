@@ -11,24 +11,23 @@ const PORT = process.env.PORT || 10000;
 // ------------------------------------------------------
 // PERSISTENT STATS (REDIS)
 // ------------------------------------------------------
-console.log("Available Environment Variables:", Object.keys(process.env).filter(k => !k.startsWith("npm_")));
-
-const redisUrl = process.env.REDIS_URL ||
+const rawUrl = process.env.REDIS_URL ||
   process.env.REDIS_PUBLIC_URL ||
+  process.env.REDIS_PRIVATE_URL ||
   (process.env.REDISHOST ? `redis://${process.env.REDISUSER || 'default'}:${process.env.REDISPASSWORD}@${process.env.REDISHOST}:${process.env.REDISPORT}` : null);
 
-if (!redisUrl) {
-  console.warn("⚠️ REDIS_URL not found. Stats will NOT be saved to Redis. Please check Railway Variables.");
+// Help us debug by showing if the URL is empty or has content
+if (rawUrl) {
+  const masked = rawUrl.length > 15 ? rawUrl.substring(0, 12) + "..." : "Short URL";
+  console.log(`✅ Redis URL detected: ${masked}`);
 } else {
-  console.log(`✅ Attempting Redis connection: ${redisUrl.replace(/:[^:@]+@/, ":****@")}`);
+  console.warn("⚠️ No Redis variables found in environment.");
 }
 
-const redis = redisUrl ? new Redis(redisUrl, {
+const redis = rawUrl ? new Redis(rawUrl, {
   maxRetriesPerRequest: 1,
   connectTimeout: 5000,
-  retryStrategy(times) {
-    return times <= 3 ? 1000 : null; // Only retry 3 times then give up to stop log spam
-  }
+  retryStrategy: (times) => (times <= 3 ? 1000 : null)
 }) : null;
 
 if (redis) {
