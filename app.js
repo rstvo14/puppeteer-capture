@@ -11,17 +11,25 @@ const PORT = process.env.PORT || 10000;
 // ------------------------------------------------------
 // PERSISTENT STATS (REDIS)
 // ------------------------------------------------------
+const envKeys = Object.keys(process.env);
+const redisKeys = envKeys.filter(k => k.includes("REDIS"));
+console.log(`Checking for Redis variables: [${redisKeys.join(", ")}]`);
+
+// Check values manually to find "empty string" issues
+redisKeys.forEach(k => {
+  if (!process.env[k]) console.warn(`⚠️ Variable ${k} exists but is EMPTY.`);
+});
+
 const rawUrl = process.env.REDIS_URL ||
   process.env.REDIS_PUBLIC_URL ||
   process.env.REDIS_PRIVATE_URL ||
   (process.env.REDISHOST ? `redis://${process.env.REDISUSER || 'default'}:${process.env.REDISPASSWORD}@${process.env.REDISHOST}:${process.env.REDISPORT}` : null);
 
-// Help us debug by showing if the URL is empty or has content
 if (rawUrl) {
-  const masked = rawUrl.length > 15 ? rawUrl.substring(0, 12) + "..." : "Short URL";
+  const masked = rawUrl.length > 20 ? rawUrl.substring(0, 15) + "..." : "Detected URL";
   console.log(`✅ Redis URL detected: ${masked}`);
 } else {
-  console.warn("⚠️ No Redis variables found in environment.");
+  console.error("❌ CRITICAL: No Redis connection string found. Check your Railway Variables.");
 }
 
 const redis = rawUrl ? new Redis(rawUrl, {
