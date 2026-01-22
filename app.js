@@ -14,6 +14,7 @@ const rawUrl = process.env.REDIS_URL ||
   (process.env.REDISHOST ? `redis://${process.env.REDISUSER || 'default'}:${process.env.REDISPASSWORD}@${process.env.REDISHOST}:${process.env.REDISPORT}` : null);
 
 const redis = rawUrl ? new Redis(rawUrl, {
+  family: 6, // ⚡ Enable IPv6 for Railway Private Network
   maxRetriesPerRequest: 1,
   connectTimeout: 5000,
   retryStrategy: (times) => (times <= 3 ? 1000 : null),
