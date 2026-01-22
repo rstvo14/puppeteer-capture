@@ -11,7 +11,10 @@ const PORT = process.env.PORT || 10000;
 // ------------------------------------------------------
 // PERSISTENT STATS (REDIS)
 // ------------------------------------------------------
+console.log("Available Environment Variables:", Object.keys(process.env).filter(k => !k.startsWith("npm_")));
+
 const redisUrl = process.env.REDIS_URL ||
+  process.env.REDIS_PUBLIC_URL ||
   (process.env.REDISHOST ? `redis://${process.env.REDISUSER || 'default'}:${process.env.REDISPASSWORD}@${process.env.REDISHOST}:${process.env.REDISPORT}` : null);
 
 if (!redisUrl) {
